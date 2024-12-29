@@ -1,11 +1,12 @@
 """
-Módulo principal para ejecutar benchmarks de librerías de procesamiento de datos.
+Main module to run benchmarks for data processing libraries.
 """
 import pandas as pd
 import polars as pl
 import datatable as dt
 import numpy as np
 from time import time
+import os
 from typing import Dict, Any, List, Tuple
 import logging
 
@@ -18,28 +19,28 @@ def create_sample_data(n_rows: int) -> Dict[str, Any]:
     Crear conjunto de datos de ejemplo para benchmarks.
     
     Args:
-        n_rows: Número de filas para el dataset
+        n_rows: Number of rows for the dataset
         
     Returns:
-        Dictionary con datos de ejemplo
+        Dictionary with sample data
     """
-    np.random.seed(42)
+    rng = np.random.RandomState(42)
     return {
         'id': np.arange(n_rows),
-        'value': np.random.randn(n_rows),
-        'category': np.random.choice(['A', 'B', 'C'], n_rows),
-        'date': pd.date_range('2023-01-01', periods=n_rows)
+        'value': rng.randn(n_rows),
+        'category': rng.choice(['A', 'B', 'C'], n_rows),
+        'date': pd.date_range('2000-01-01', periods=n_rows, freq='s') # Cambiar la frecuencia a segundos
     }
 
 class BenchmarkRunner:
-    """Clase para ejecutar y gestionar benchmarks."""
+    """Class to run and manage benchmarks."""
     
     def __init__(self, data: Dict[str, Any]):
         self.data = data
         self.results: Dict[str, Dict[str, float]] = {}
         
     def run_io_benchmark(self) -> Dict[str, float]:
-        """Ejecutar benchmark de operaciones IO."""
+        """Run IO operations benchmark."""
         results = {}
         
         # Pandas benchmark
@@ -50,8 +51,11 @@ class BenchmarkRunner:
             df_read = pd.read_csv('test_pandas.csv')
             results['pandas'] = time() - start
         except Exception as e:
-            logger.error(f"Error en benchmark Pandas: {e}")
+            logger.error(f"Error in Pandas benchmark: {e}")
             results['pandas'] = float('nan')
+        finally:
+            if os.path.exists('test_pandas.csv'):
+                os.remove('test_pandas.csv')
             
         # Polars benchmark
         try:
@@ -61,50 +65,97 @@ class BenchmarkRunner:
             df_read = pl.read_csv('test_polars.csv')
             results['polars'] = time() - start
         except Exception as e:
-            logger.error(f"Error en benchmark Polars: {e}")
+            logger.error(f"Error in Polars benchmark: {e}")
             results['polars'] = float('nan')
+        finally:
+            if os.path.exists('test_polars.csv'):
+                os.remove('test_polars.csv')
             
         # Data.table benchmark
         try:
             start = time()
-            df = dt.Frame(self.data)
+            data_copy = self.data.copy()
+            data_copy['date'] = pd.to_datetime(data_copy['date']).astype(np.int64)  # Convertir a int64
+            # Convertir las columnas a listas para evitar el error
+            df = dt.Frame({k: list(v) for k, v in data_copy.items()})
             df.to_csv('test_datatable.csv')
             df_read = dt.fread('test_datatable.csv')
             results['datatable'] = time() - start
         except Exception as e:
-            logger.error(f"Error en benchmark Data.table: {e}")
+            logger.error(f"Error in Data.table benchmark: {e}")
             results['datatable'] = float('nan')
+        finally:
+            if os.path.exists('test_datatable.csv'):
+                os.remove('test_datatable.csv')
             
         return results
     
+    # Corrección en el método run_groupby_benchmark
     def run_groupby_benchmark(self) -> Dict[str, float]:
-        """Ejecutar benchmark de operaciones groupby."""
+        """Run benchmark for groupby operations."""
         results = {}
         
-        # Implementación para cada librería...
-        # [Código similar al anterior para groupby]
+        # Pandas benchmark
+        try:
+            start = time()
+            df = pd.DataFrame(self.data)
+            df.groupby('category').agg({'value': 'mean'})
+            results['pandas'] = time() - start
+        except Exception as e:
+            logger.error(f"Error in Pandas groupby benchmark: {e}")
+            results['pandas'] = float('nan')
+        
+        # Polars benchmark
+        try:
+            start = time()
+            df = pl.DataFrame(self.data)
+            df.group_by('category').agg(pl.col('value').mean())
+            results['polars'] = time() - start
+        except Exception as e:
+            logger.error(f"Error in Polars groupby benchmark: {e}")
+            results['polars'] = float('nan')
+        
+            # Data.table benchmark
+        # Data.table benchmark
+        try:
+            start = time()
+            # Convertir las columnas a listas y manejar las fechas
+            data_copy = self.data.copy()
+            data_copy['date'] = data_copy['date'].astype(np.int64)  # Convertir a int64
+            df = dt.Frame({k: list(v) for k, v in data_copy.items()})  # Convertir a listas
+            df[:, dt.mean(dt.f.value), dt.by(dt.f.category)]
+            results['datatable'] = time() - start
+        except Exception as e:
+            logger.error(f"Error in Data.table groupby benchmark: {e}")
+            results['datatable'] = float('nan')
         
         return results
     
-    def run_all_benchmarks(self) -> Dict[str, Dict[str, float]]:
-        """Ejecutar todos los benchmarks disponibles."""
-        self.results['io'] = self.run_io_benchmark()
-        self.results['groupby'] = self.run_groupby_benchmark()
+    def run_all_benchmarks(self, operations: List[str] = None) -> Dict[str, Dict[str, float]]:
+        """Run specified benchmarks or all if none specified."""
+        if operations is None:
+            operations = ['io', 'groupby']
+        
+        if 'io' in operations:
+            self.results['io'] = self.run_io_benchmark()
+        if 'groupby' in operations:
+            self.results['groupby'] = self.run_groupby_benchmark()
+        
         return self.results
 
 def run_benchmark(data: Dict[str, Any], operations: List[str] = None) -> Dict[str, Dict[str, float]]:
     """
-    Función principal para ejecutar benchmarks.
+    Main function to run benchmarks.
     
     Args:
-        data: Datos para usar en los benchmarks
-        operations: Lista de operaciones a benchmark
+        data: Data to use in the benchmarks
+        operations: List of operations to benchmark
         
     Returns:
-        Dictionary con resultados de los benchmarks
+        Dictionary with benchmark results
     """
     runner = BenchmarkRunner(data)
-    return runner.run_all_benchmarks()
+    return runner.run_all_benchmarks(operations)
 
 if __name__ == "__main__":
     # Ejemplo de uso

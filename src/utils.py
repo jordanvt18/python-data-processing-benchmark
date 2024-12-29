@@ -86,13 +86,13 @@ def memory_usage_report(data_frames: Dict[str, Union[pd.DataFrame, pl.DataFrame,
         }
     
     return pd.DataFrame(memory_stats).T
-
-def plot_benchmark_results(results: Dict[str, Dict[str, float]], 
+def plot_benchmark_results(results: Union[Dict[str, float], Dict[str, Dict[str, float]]], 
                          title: str = "Benchmark Results",
                          save_path: Optional[Union[str, Path]] = None,
                          plot_type: str = 'bar') -> None:
     """
     Visualiza los resultados del benchmark con diferentes tipos de gráficos.
+    Soporta diccionarios simples {libreria: tiempo} y anidados {libreria: {operacion: tiempo}}
     
     Args:
         results: Resultados del benchmark
@@ -101,14 +101,33 @@ def plot_benchmark_results(results: Dict[str, Dict[str, float]],
         plot_type: Tipo de gráfico ('bar', 'box', 'violin')
     """
     plt.figure(figsize=(12, 6))
-    df_results = pd.DataFrame(results).T
+    
+    # Check if results is nested dictionary
+    is_nested = any(isinstance(v, dict) for v in results.values())
+    
+    if is_nested:
+        df_results = pd.DataFrame(results).T
+    else:
+        df_results = pd.DataFrame({
+            'Library': list(results.keys()),
+            'Time': list(results.values())
+        })
     
     if plot_type == 'bar':
-        sns.barplot(data=df_results)
+        if is_nested:
+            sns.barplot(data=df_results)
+        else:
+            sns.barplot(data=df_results, x='Library', y='Time')
     elif plot_type == 'box':
-        sns.boxplot(data=df_results)
+        if is_nested:
+            sns.boxplot(data=df_results)
+        else:
+            sns.boxplot(data=df_results, x='Library', y='Time')
     elif plot_type == 'violin':
-        sns.violinplot(data=df_results)
+        if is_nested:
+            sns.violinplot(data=df_results)
+        else:
+            sns.violinplot(data=df_results, x='Library', y='Time')
     else:
         raise ValueError(f"Tipo de gráfico no soportado: {plot_type}")
     
@@ -119,6 +138,7 @@ def plot_benchmark_results(results: Dict[str, Dict[str, float]],
     if save_path:
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
     
+    plt.tight_layout()
     plt.show()
 
 def generate_performance_report(benchmark_results: Dict[str, Dict[str, float]], 
@@ -169,24 +189,42 @@ def save_benchmark_results(results: Dict[str, Any],
     pd.DataFrame(results).to_csv(output_dir / filename)
     logger.info(f"Resultados guardados en: {output_dir / filename}")
 
-def calculate_speedup(results: Dict[str, float], 
+def calculate_speedup(results: Union[Dict[str, float], Dict[str, Dict[str, float]]], 
                      baseline: str = 'pandas') -> Dict[str, float]:
     """
     Calcula la mejora de velocidad relativa respecto a una línea base.
     
     Args:
-        results: Diccionario con tiempos de ejecución
+        results: Diccionario simple {libreria: tiempo} o anidado {operacion: {libreria: tiempo}}
         baseline: Librería a usar como referencia
         
     Returns:
         Diccionario con los speedups calculados
     """
-    baseline_time = results[baseline]
-    return {
-        lib: baseline_time / time 
-        for lib, time in results.items()
-    }
-
+    baseline = baseline.lower()
+    
+    # Check if nested dictionary
+    if isinstance(next(iter(results.values())), dict):
+        # Get first operation's results
+        first_op = next(iter(results.values()))
+        if baseline not in first_op:
+            raise KeyError(f"Baseline '{baseline}' not found in results")
+        baseline_time = first_op[baseline]
+        return {
+            lib: baseline_time / time 
+            for lib, time in first_op.items()
+        }
+    else:
+        # Simple dictionary
+        if baseline not in results:
+            raise KeyError(f"Baseline '{baseline}' not found in results")
+        baseline_time = results[baseline]
+        return {
+            lib: baseline_time / time 
+            for lib, time in results.items()
+        }
+    
+    
 def profile_memory_growth(func: callable, 
                          iterations: int = 5) -> List[float]:
     """

@@ -8,3 +8,4 @@ matplotlib>=3.5.0
 seaborn>=0.11.0
 ipykernel>=6.0.0
 nbformat>=5.0.0
+memory_profiler>=0.60.0
