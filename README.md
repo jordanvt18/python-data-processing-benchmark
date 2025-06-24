@@ -24,7 +24,7 @@ Este repositorio contiene una comparativa detallada de rendimiento entre las pri
 
 1. Clona el repositorio:
 ```bash
-git clone https://github.com/tu-usuario/python-data-processing-benchmark.git
+git clone https://github.com/jordanvt18/python-data-processing-benchmark.git
 cd python-data-processing-benchmark
 ```
 
